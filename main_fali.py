@@ -48,11 +48,12 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--dataset', type=str, default='mnist')
     parser.add_argument('--model_path', type=str, default='./models')
-    parser.add_argument('--sample_path', type=str, default='./ralice')
+    parser.add_argument('--sample_path', type=str, default='./fali')
     parser.add_argument('--mnist_path', type=str, default='./mnist')
     parser.add_argument('--svhn_path', type=str, default='./svhn')
     parser.add_argument('--log_step', type=int , default=10)
     parser.add_argument('--sample_step', type=int , default=500)
+    parser.add_argument('--trans_domain', type=str , default='mnist2color',choice=['mnist2color','mnits2svhn','color2svhn'])
 
     config = parser.parse_args()
     print(config)

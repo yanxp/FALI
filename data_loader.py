@@ -34,8 +34,9 @@ def get_loader(config):
                     transforms.Resize(config.image_size),
                     transforms.ToTensor(),
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    fw = open('mnistm_data.pkl','rb')
+    fw = open('mnistm_data.pkl','rb')　# mnit-color dataset .pkl file
     mnist_m = pkl.load(fw)
+
     images = mnist_m['train']['images']
     labels = mnist_m['train']['labels']
     
@@ -52,9 +53,12 @@ def get_loader(config):
                                                batch_size=config.batch_size,
                                                shuffle=True,
                                                num_workers=config.num_workers)
-    
 
-    mnist_m_loader = torch.utils.data.DataLoader(mnist_m,batch_size=config.batch_size,shuffle=True,num_workers=config.num_workers)
+
+    mnist_m_loader = torch.utils.data.DataLoader(mnist_m,
+                                        batch_size=config.batch_size,
+                                        shuffle=True,
+                                        num_workers=config.num_workers)
 
     return svhn_loader, mnist_loader,mnist_m_loader
 

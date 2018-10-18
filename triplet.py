@@ -13,10 +13,10 @@ from model import DZ1,DZ2
 
 
 class Solver(object):
-    def __init__(self, config, svhn_loader, mnist_loader,mnist_m_loader):
+    def __init__(self, config, svhn_loader, mnist_loader,mnist_color_loader):
         self.svhn_loader = svhn_loader
         self.mnist_loader = mnist_loader
-        self.mnist_m_loader = mnist_m_loader
+        self.mnist_color_loader = mnist_color_loader
 
         self.IZ1 = None
         self.IZ2 = None
@@ -58,10 +58,6 @@ class Solver(object):
         self.DZ2 = DZ2(conv_dim=self.d_conv_dim)
         self.DZ3 = DZ2(conv_dim=self.d_conv_dim)
 
-        # self.IZ1 = IZ1(conv_dim=self.g_conv_dim)
-        # self.IZ2 = IZ2(conv_dim=self.g_conv_dim)
-        # self.d1 = D1(conv_dim=self.d_conv_dim, use_labels=self.use_labels)
-        # self.d2 = D2(conv_dim=self.d_conv_dim, use_labels=self.use_labels)
         
         g_params = list(self.IZ1.parameters()) + list(self.IZ2.parameters())+ list(self.ZG1.parameters())+ list(self.ZG2.parameters())+list(self.IZ3.parameters())+list(self.ZG3.parameters())
         d_params = list(self.DZ1.parameters()) + list(self.DZ2.parameters())+list(self.DZ3.parameters())
@@ -70,10 +66,7 @@ class Solver(object):
         self.d_optimizer = optim.Adam(d_params, self.lr, [self.beta1, self.beta2])
         
         if torch.cuda.is_available():
-            # self.IZ1.cuda()
-            # self.IZ2.cuda()
-            # self.d1.cuda()
-            # self.d2.cuda()
+ 
             self.IZ1.cuda()
             self.IZ2.cuda()
             self.IZ3.cuda()
@@ -113,21 +106,22 @@ class Solver(object):
         self.d_optimizer.zero_grad()
 
     def train(self):
+        # three domain tranform 
         svhn_iter = iter(self.svhn_loader)
         mnist_iter = iter(self.mnist_loader)
-        mnist_m_iter = iter(self.mnist_m_loader)
-        iter_per_epoch = min(len(svhn_iter), len(mnist_iter),len(mnist_m_iter))
+        mnist_color_iter = iter(self.mnist_color_loader)
+        iter_per_epoch = min(len(svhn_iter), len(mnist_iter),len(mnist_color_iter))
         
         # fixed mnist and svhn for sampling
         fixed_svhn = self.to_var(svhn_iter.next()[0])
         fixed_mnist = self.to_var(mnist_iter.next()[0])
-        fixed_mnist_m = self.to_var(mnist_m_iter.next()[0])
+        fixed_mnist_color = self.to_var(mnist_color_iter.next()[0])
          
         
         # loss if use_labels = True
         criterion = nn.CrossEntropyLoss()
 
-        fixed_z_ = torch.randn((self.batch_size,256)).view(-1, 256, 1, 1)    # fixed noise
+        fixed_z_ = torch.randn((self.batch_size,256)).view(-1, 256, 1, 1)    # fixed noise z
         fixed_z_ = Variable(fixed_z_.cuda())
         
         for step in range(self.train_iters+1):
@@ -135,16 +129,16 @@ class Solver(object):
             if (step+1) % iter_per_epoch == 0:
                 mnist_iter = iter(self.mnist_loader)
                 svhn_iter = iter(self.svhn_loader)
-                mnist_m_iter = iter(self.mnist_m_loader)
+                mnist_color_iter = iter(self.mnist_color_loader)
             
-            # load svhn and mnist dataset
+            # load svhn and mnist,mnist_color dataset
             svhn, s_labels = svhn_iter.next() 
             svhn, s_labels = self.to_var(svhn), self.to_var(s_labels).long().squeeze()
             mnist, m_labels = mnist_iter.next() 
             mnist, m_labels = self.to_var(mnist), self.to_var(m_labels)
 
-            mnist_m, mnist_m_labels = mnist_m_iter.next() 
-            mnist_m, mnist_m_labels = self.to_var(mnist_m), self.to_var(mnist_m_labels)
+            mnist_color, mnist_color_labels = mnist_color_iter.next() 
+            mnist_color, mnist_color_labels = self.to_var(mnist_color), self.to_var(mnist_color_labels)
             
 
             if self.use_labels:
@@ -153,24 +147,23 @@ class Solver(object):
                 svhn_fake_labels = self.to_var(
                     torch.Tensor([self.num_classes]*mnist.size(0)).long())
 
-            #z = torch.randn((self.batch_size, 256)).view(-1, 256, 1, 1)
-            #z = Variable(z.cuda())
+
             #============ train D ============#
             
             # train with real images
             self.reset_grad()
 
-            mb_size = min(mnist.size(0),svhn.size(0),mnist_m.size(0))
+            mb_size = min(mnist.size(0),svhn.size(0),mnist_color.size(0))
             mnist = mnist[:mb_size,:,:,:]
             m_labels = mnist[:mb_size]
-            mnist_m = mnist_m[:mb_size,:,:,:]
-            mnist_m_labels = mnist_m_labels[:mb_size]
+            mnist_color = mnist_color[:mb_size,:,:,:]
+            mnist_color_labels = mnist_color_labels[:mb_size]
             svhn = svhn[:mb_size,:,:,:]
             s_labels = s_labels[:mb_size]
             z = torch.randn((mb_size, 256)).view(-1, 256, 1, 1)
             z = Variable(z.cuda())
 
-            z_hat_mnist = self.IZ3(mnist_m)
+            z_hat_mnist = self.IZ3(mnist_color)
             out = self.DZ1(mnist,z_hat_mnist)
 
             if self.use_labels:
@@ -178,7 +171,7 @@ class Solver(object):
             else:
                 d1_loss = torch.mean((out-1)**2)
             
-            # out = self.d2(svhn)
+
             z_hat_svhn =  self.IZ1(mnist)
             out = self.DZ2(svhn,z_hat_svhn)
 
@@ -187,9 +180,9 @@ class Solver(object):
             else:
                 d2_loss = torch.mean((out-1)**2)
             
-            # out = self.d2(svhn)
-            z_hat_mnist_m =  self.IZ2(svhn)
-            out = self.DZ3(mnist_m,z_hat_mnist_m)
+
+            z_hat_mnist_color =  self.IZ2(svhn)
+            out = self.DZ3(mnist_color,z_hat_mnist_color)
 
             if self.use_labels:
                 d3_loss = criterion(out, s_labels)
@@ -198,11 +191,13 @@ class Solver(object):
             
             d_mnist_loss = d1_loss
             d_svhn_loss = d2_loss
-            d_mnist_m_loss = d3_loss
+            d_mnist_color_loss = d3_loss
+
             d_real_loss = (d1_loss + d2_loss + d3_loss)
             d_real_loss.backward(retain_graph=True)
             self.d_optimizer.step()
-
+            
+            # the clamp hype need to reset for different domain
             for p in self.DZ1.parameters() :
                 p.data.clamp_(-0.01, 0.01)
 
@@ -217,11 +212,12 @@ class Solver(object):
             
             z_hat_mnist_sample = z_hat_mnist
             z_hat_svhn_sample = z_hat_svhn
-            z_hat_mnist_m_sample = z_hat_mnist_m
+            z_hat_mnist_color_sample = z_hat_mnist_color
+            # Switch sample from z or fake_z
             if (step+1) % 2 == 0:
                 z_hat_svhn_sample = z
                 z_hat_mnist_sample = z
-                z_hat_mnist_m_sample = z
+                z_hat_mnist_color_sample = z
 
             fake_svhn = self.ZG2(z_hat_svhn_sample)
             out = self.DZ2(fake_svhn,z)
@@ -239,8 +235,8 @@ class Solver(object):
             else:
                 d1_loss = torch.mean(out**2)
             
-            fake_mnist_m = self.ZG3(z_hat_mnist_m_sample)
-            out = self.DZ3(fake_mnist_m,z)
+            fake_mnist_color = self.ZG3(z_hat_mnist_color_sample)
+            out = self.DZ3(fake_mnist_color,z)
 
             if self.use_labels:
                 d3_loss = criterion(out, mnist_fake_labels)
@@ -250,7 +246,7 @@ class Solver(object):
             d_fake_loss = d1_loss + d2_loss + d3_loss
             d_fake_loss.backward(retain_graph=True)
             self.d_optimizer.step()
-            
+            # the clamp hype need to reset for different domain
             for p in self.DZ1.parameters() :
                 p.data.clamp_(-0.01, 0.01)
 
@@ -261,11 +257,11 @@ class Solver(object):
                 p.data.clamp_(-0.075, 0.075)
             #============ train G ============#
             
-            # train mnist-svhn-mnist cycle
+            # train svhn cycle
             self.reset_grad()
 
             out = self.DZ2(fake_svhn,z)
-            reconst_svhn = self.ZG2(z_hat_mnist_m)
+            reconst_svhn = self.ZG2(z_hat_mnist_color)
             reconst_z = self.IZ2(fake_svhn)
             
             if self.use_labels:
@@ -279,7 +275,7 @@ class Solver(object):
             g_loss.backward(retain_graph=True)
             self.g_optimizer.step()
 
-            # train svhn-mnist-svhn cycle
+            # train mnist cycle
             self.reset_grad()
             
             out = self.DZ1(fake_mnist,z)
@@ -296,16 +292,17 @@ class Solver(object):
             g_loss.backward(retain_graph=True)
             self.g_optimizer.step()
             
-            out = self.DZ3(fake_mnist_m,z)
-            reconst_mnist_m = self.ZG3(z_hat_mnist)
-            reconst_z = self.IZ3(fake_mnist_m)
+            # train mnist_color cycle
+            out = self.DZ3(fake_mnist_color,z)
+            reconst_mnist_color = self.ZG3(z_hat_mnist)
+            reconst_z = self.IZ3(fake_mnist_color)
             if self.use_labels:
-                g_loss = criterion(out, mnist_m_labels) 
+                g_loss = criterion(out, mnist_color_labels) 
             else:
                 g_loss = torch.mean((out-0.5)**2) 
 
             if self.use_reconst_loss:
-                g_loss += 0.1*(torch.mean((mnist_m - reconst_mnist_m)**2)+ torch.mean((z - reconst_z)**2))
+                g_loss += 0.1*(torch.mean((mnist_color - reconst_mnist_color)**2)+ torch.mean((z - reconst_z)**2))
 
             g_loss.backward()
             self.g_optimizer.step()
@@ -319,29 +316,35 @@ class Solver(object):
 
             # save the sampled images
             if (step+1) % self.sample_step == 0:
-                # fake_svhn = self.IZ1(fixed_mnist)
-                # fake_mnist = self.IZ2(fixed_svhn)
+                # sample from fixed images
                 z_hat_svhn = self.IZ1(fixed_mnist)
                 fake_svhn = self.ZG2(z_hat_svhn)
-                z_hat_mnist_m = self.IZ2(fixed_svhn)
-                fake_mnist_m = self.ZG3(z_hat_mnist_m)
-                z_hat_mnist = self.IZ3(fixed_mnist_m) 
+                z_hat_mnist_color = self.IZ2(fixed_svhn)
+                fake_mnist_color = self.ZG3(z_hat_mnist_color)
+                z_hat_mnist = self.IZ3(fixed_mnist_color) 
                 fake_mnist = self.ZG1(z_hat_mnist)
                 
+                '''
+                # sample from z
+                fake_svhn = self.ZG2(fifixed_z_xed_z)
+                fake_mnist_color = self.ZG3(fixed_z_)
+                fake_mnist = self.ZG1(fixed_z_)
+                '''
+
                 mnist, fake_mnist = self.to_data(fixed_mnist), self.to_data(fake_mnist)
                 svhn , fake_svhn = self.to_data(fixed_svhn), self.to_data(fake_svhn)
-                mnist_m, fake_mnist_m = self.to_data(fixed_mnist_m), self.to_data(fake_mnist_m)
+                mnist_color, fake_mnist_color = self.to_data(fixed_mnist_color), self.to_data(fake_mnist_color)
                 merged = self.merge_images(mnist, fake_svhn)
                 path = os.path.join(self.sample_path, 'sample-%d-m-s.png' %(step+1))
                 scipy.misc.imsave(path, merged)
                 print ('saved %s' %path)
                 
-                merged = self.merge_images(svhn, fake_mnist_m)
+                merged = self.merge_images(svhn, fake_mnist_color)
                 path = os.path.join(self.sample_path, 'sample-%d-s-c.png' %(step+1))
                 scipy.misc.imsave(path, merged)
                 print ('saved %s' %path)
                 
-                merged = self.merge_images(mnist_m, fake_mnist)
+                merged = self.merge_images(mnist_color, fake_mnist)
                 path = os.path.join(self.sample_path, 'sample-%d-c-m.png' %(step+1))
                 scipy.misc.imsave(path, merged)
                 print ('saved %s' %path)
